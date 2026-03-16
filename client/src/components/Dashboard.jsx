@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { logService } from '../services/api';
 import socketService from '../services/socket';
 import StatsCards from './StatsCards';
@@ -20,50 +20,45 @@ function Dashboard() {
     limit: 50
   });
 
-  // Initial data load
+  // Keep a ref to the current limit so socket handler always has fresh value
+  const limitRef = useRef(filters.limit);
   useEffect(() => {
-    fetchData();
-    
-    // Setup Socket.io listeners
-    socketService.connect();
-    
-    socketService.on('newLog', (log) => {
-      setLogs(prev => [log, ...prev].slice(0, filters.limit));
-    });
-    
-    socketService.on('anomalyDetected', (data) => {
-      setAnomalies(prev => [data, ...prev].slice(0, 10));
-      
-      // Browser notification
-      if (Notification.permission === 'granted') {
-        new Notification('Anomaly Detected!', {
-          body: `${data.log.service}: ${data.log.message}`,
-          icon: '/alert-icon.png'
-        });
-      }
-    });
-    
-    // Refresh stats every 30 seconds
-    const statsInterval = setInterval(fetchStats, 30000);
-    
-    return () => {
-      socketService.disconnect();
-      clearInterval(statsInterval);
-    };
+    limitRef.current = filters.limit;
   }, [filters.limit]);
 
-  // Request notification permission
-  useEffect(() => {
-    if (Notification.permission === 'default') {
-      Notification.requestPermission();
+  // ── Fetch helpers ──────────────────────────────────────────────────────
+  const fetchLogs = useCallback(async (currentFilters) => {
+    try {
+      const response = await logService.getLogs(currentFilters);
+      setLogs(response.data);
+    } catch (error) {
+      console.error('Error fetching logs:', error);
     }
   }, []);
 
-  const fetchData = async () => {
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await logService.getStats();
+      setStats(response.data);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  }, []);
+
+  const fetchTimeline = useCallback(async () => {
+    try {
+      const response = await logService.getTimeline('hour', 24);
+      setTimeline(response.data);
+    } catch (error) {
+      console.error('Error fetching timeline:', error);
+    }
+  }, []);
+
+  const fetchData = useCallback(async (currentFilters) => {
     setLoading(true);
     try {
       await Promise.all([
-        fetchLogs(),
+        fetchLogs(currentFilters),
         fetchStats(),
         fetchTimeline()
       ]);
@@ -72,28 +67,64 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchLogs, fetchStats, fetchTimeline]);
 
-  const fetchLogs = async () => {
-    const response = await logService.getLogs(filters);
-    setLogs(response.data);
-  };
+  // ── Initial load + socket setup (runs once) ────────────────────────────
+  useEffect(() => {
+    fetchData(filters);
 
-  const fetchStats = async () => {
-    const response = await logService.getStats();
-    setStats(response.data);
-  };
+    // Request notification permission
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
 
-  const fetchTimeline = async () => {
-    const response = await logService.getTimeline('hour', 24);
-    setTimeline(response.data);
-  };
+    // Socket listeners
+    socketService.connect();
 
+    const handleNewLog = (log) => {
+      setLogs(prev => [log, ...prev].slice(0, limitRef.current));
+    };
+
+    const handleAnomaly = (data) => {
+      setAnomalies(prev => [data, ...prev].slice(0, 10));
+      if (Notification.permission === 'granted') {
+        new Notification('Anomaly Detected!', {
+          body: `${data.log.service}: ${data.log.message}`
+        });
+      }
+    };
+
+    socketService.on('newLog', handleNewLog);
+    socketService.on('anomalyDetected', handleAnomaly);
+
+    // Refresh stats every 30 seconds
+    const statsInterval = setInterval(fetchStats, 30000);
+
+    return () => {
+      socketService.off('newLog', handleNewLog);
+      socketService.off('anomalyDetected', handleAnomaly);
+      socketService.disconnect();
+      clearInterval(statsInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Re-fetch logs whenever filters change (but not on initial mount) ───
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    fetchLogs(filters);
+  }, [filters, fetchLogs]);
+
+  // ── Handlers ───────────────────────────────────────────────────────────
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({
       ...prev,
       [key]: value,
-      page: 1 // Reset to first page
+      page: 1
     }));
   };
 
@@ -101,10 +132,16 @@ function Dashboard() {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
-  useEffect(() => {
-    fetchLogs();
-  }, [filters]);
+  const handleRefresh = () => {
+    fetchData(filters);
+  };
 
+  const handleClearFilters = () => {
+    const cleared = { service: '', level: '', page: 1, limit: 50 };
+    setFilters(cleared);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="loading-container">
@@ -128,8 +165,8 @@ function Dashboard() {
       {anomalies.length > 0 && (
         <div className="anomaly-alerts-container">
           {anomalies.map((anomaly, idx) => (
-            <AnomalyAlert 
-              key={idx} 
+            <AnomalyAlert
+              key={idx}
               data={anomaly}
               onDismiss={() => {
                 setAnomalies(prev => prev.filter((_, i) => i !== idx));
@@ -147,7 +184,7 @@ function Dashboard() {
 
       {/* Filters */}
       <div className="filters-container">
-        <select 
+        <select
           value={filters.service}
           onChange={(e) => handleFilterChange('service', e.target.value)}
           className="filter-select"
@@ -159,7 +196,7 @@ function Dashboard() {
           <option value="notification-service">Notification Service</option>
         </select>
 
-        <select 
+        <select
           value={filters.level}
           onChange={(e) => handleFilterChange('level', e.target.value)}
           className="filter-select"
@@ -171,26 +208,31 @@ function Dashboard() {
           <option value="DEBUG">DEBUG</option>
         </select>
 
-        <button 
-          onClick={() => setFilters({ service: '', level: '', page: 1, limit: 50 })}
-          className="btn-secondary"
+        <select
+          value={filters.limit}
+          onChange={(e) => handleFilterChange('limit', parseInt(e.target.value))}
+          className="filter-select"
         >
+          <option value={25}>25 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+        </select>
+
+        <button onClick={handleClearFilters} className="btn-secondary">
           Clear Filters
         </button>
 
-        <button 
-          onClick={fetchData}
-          className="btn-primary"
-        >
+        <button onClick={handleRefresh} className="btn-primary">
           🔄 Refresh
         </button>
       </div>
 
       {/* Logs Table */}
-      <LogsTable 
-        logs={logs} 
+      <LogsTable
+        logs={logs}
         onPageChange={handlePageChange}
         currentPage={filters.page}
+        pageLimit={filters.limit}
       />
     </div>
   );

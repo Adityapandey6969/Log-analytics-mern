@@ -1,7 +1,7 @@
 import React from 'react';
 import './LogsTable.css';
 
-function LogsTable({ logs, onPageChange, currentPage }) {
+function LogsTable({ logs, onPageChange, currentPage, pageLimit = 50 }) {
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString() + ' ' + date.toLocaleDateString();
@@ -16,6 +16,22 @@ function LogsTable({ logs, onPageChange, currentPage }) {
     };
     return classes[level] || 'level-default';
   };
+
+  const hasNextPage = logs.length >= pageLimit;
+
+  if (logs.length === 0) {
+    return (
+      <div className="logs-table-container">
+        <div className="table-header">
+          <h2>📋 Recent Logs</h2>
+          <span className="log-count">0 logs</span>
+        </div>
+        <div className="table-empty">
+          No logs found. Try adjusting your filters or generate some logs.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="logs-table-container">
@@ -38,8 +54,8 @@ function LogsTable({ logs, onPageChange, currentPage }) {
           </thead>
           <tbody>
             {logs.map(log => (
-              <tr 
-                key={log._id} 
+              <tr
+                key={log._id}
                 className={log.isAnomaly ? 'anomaly-row' : ''}
               >
                 <td className="time-cell">
@@ -59,8 +75,8 @@ function LogsTable({ logs, onPageChange, currentPage }) {
                 <td className="response-time-cell">
                   {log.metadata?.response_time ? (
                     <span className={
-                      log.metadata.response_time > 1000 
-                        ? 'slow-response' 
+                      log.metadata.response_time > 1000
+                        ? 'slow-response'
                         : 'normal-response'
                     }>
                       {log.metadata.response_time}ms
@@ -82,7 +98,7 @@ function LogsTable({ logs, onPageChange, currentPage }) {
 
       {/* Pagination */}
       <div className="pagination">
-        <button 
+        <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
           className="btn-pagination"
@@ -90,8 +106,9 @@ function LogsTable({ logs, onPageChange, currentPage }) {
           ← Previous
         </button>
         <span className="page-info">Page {currentPage}</span>
-        <button 
+        <button
           onClick={() => onPageChange(currentPage + 1)}
+          disabled={!hasNextPage}
           className="btn-pagination"
         >
           Next →

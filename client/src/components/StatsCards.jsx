@@ -2,7 +2,7 @@ import React from 'react';
 import './StatsCards.css';
 
 function StatsCards({ stats }) {
-  const { byService, overall } = stats;
+  const { byService = [], overall = { total: 0, errors: 0, anomalies: 0 } } = stats || {};
 
   const calculateErrorRate = (service) => {
     if (service.totalLogs === 0) return 0;

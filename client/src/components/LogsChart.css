@@ -22,3 +22,17 @@
   height: 300px;
   position: relative;
 }
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #7f8c8d;
+  font-style: italic;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}

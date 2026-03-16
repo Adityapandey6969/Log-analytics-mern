@@ -25,6 +25,18 @@ ChartJS.register(
 );
 
 function LogsChart({ timeline }) {
+  // Empty state guard
+  if (!timeline || timeline.length === 0) {
+    return (
+      <div className="charts-section">
+        <div className="chart-container">
+          <h3>📈 Log Volume Over Time</h3>
+          <div className="chart-empty">No timeline data available yet. Generate some logs to see charts.</div>
+        </div>
+      </div>
+    );
+  }
+
   // Prepare data for charts
   const labels = timeline.map(item => {
     if (item._id.hour !== undefined) {
